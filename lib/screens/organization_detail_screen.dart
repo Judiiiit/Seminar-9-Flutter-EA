@@ -17,7 +17,9 @@ class OrganizationDetailScreen extends StatefulWidget {
 
 class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
   final OrganizationService _organizationService = OrganizationService();
+
   late Future<List<Task>> _tasksFuture;
+  bool _isUpdatingStatus = false;
 
   @override
   void initState() {
@@ -42,10 +44,68 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
     return '$day/$month/$year';
   }
 
+  Future<void> _changeTaskStatus(Task task, String? newStatus) async {
+    if (newStatus == null || newStatus == task.estado || _isUpdatingStatus) {
+      return;
+    }
+
+    setState(() {
+      _isUpdatingStatus = true;
+    });
+
+    try {
+      await _organizationService.updateTaskStatus(
+        tareaId: task.id,
+        estado: newStatus,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      _reloadTasks();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Estado actualizado correctamente')),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo actualizar el estado: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingStatus = false;
+        });
+      }
+    }
+  }
+
+  List<Task> _filterByEstado(List<Task> tasks, String estado) {
+    return tasks.where((task) => task.estado == estado).toList();
+  }
+
+  Color _columnAccentColor(String estado) {
+    switch (estado) {
+      case 'todo':
+        return Colors.green;
+      case 'in_progress':
+        return Colors.orange;
+      case 'completed':
+        return Colors.purple;
+      default:
+        return Colors.blueGrey;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA), // Light premium background
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         title: Text(widget.organization.name),
         centerTitle: true,
@@ -117,14 +177,23 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Text(
-                        'No se pudieron cargar las tareas. ${snapshot.error}',
+                        'No se pudieron cargar las tareas.\n${snapshot.error}',
                         textAlign: TextAlign.center,
                       ),
                     ),
                   );
                 }
 
-                final List<Task> tasks = snapshot.data ?? <Task>[];
+                final List<Task> tasks = snapshot.data ?? [];
+                final List<Task> todoTasks = _filterByEstado(tasks, 'todo');
+                final List<Task> inProgressTasks = _filterByEstado(
+                  tasks,
+                  'in_progress',
+                );
+                final List<Task> completedTasks = _filterByEstado(
+                  tasks,
+                  'completed',
+                );
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,7 +204,7 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text(
-                            'Próximas Tareas',
+                            'Tablero de tareas',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -143,7 +212,7 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
                             ),
                           ),
                           Chip(
-                            label: Text('${tasks.length} activas'),
+                            label: Text('${tasks.length} tareas'),
                             backgroundColor: Colors.blueAccent.withOpacity(0.1),
                             labelStyle: const TextStyle(
                               color: Colors.blueAccent,
@@ -153,46 +222,52 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Expanded(
-                      child: tasks.isEmpty
-                          ? const Center(
-                              child: Text('Aún no hay tareas en esta organización'),
-                            )
-                          : ListView.builder(
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              itemCount: tasks.length,
-                              itemBuilder: (BuildContext context, int index) {
-                                final Task task = tasks[index];
-
-                                return Card(
-                                  margin: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 8,
-                                  ),
-                                  child: ListTile(
-                                    onTap: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (context) => TaskDetailScreen(task: task),
-                                        ),
-                                      );
-                                    },
-                                    leading: const Icon(Icons.task_alt),
-                                    title: Text(
-                                      task.titulo,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      'Inicio: ${_formatDate(task.fechaInicio)}\nFin: ${_formatDate(task.fechaFin)}',
-                                    ),
-                                    isThreeLine: true,
-                                  ),
-                                );
-                              },
-                            ),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: SizedBox(
+                          width: 1080,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: _KanbanColumn(
+                                  title: 'To do',
+                                  color: _columnAccentColor('todo'),
+                                  tasks: todoTasks,
+                                  isUpdatingStatus: _isUpdatingStatus,
+                                  formatDate: _formatDate,
+                                  onStatusChanged: _changeTaskStatus,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: _KanbanColumn(
+                                  title: 'In progress',
+                                  color: _columnAccentColor('in_progress'),
+                                  tasks: inProgressTasks,
+                                  isUpdatingStatus: _isUpdatingStatus,
+                                  formatDate: _formatDate,
+                                  onStatusChanged: _changeTaskStatus,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: _KanbanColumn(
+                                  title: 'Done',
+                                  color: _columnAccentColor('completed'),
+                                  tasks: completedTasks,
+                                  isUpdatingStatus: _isUpdatingStatus,
+                                  formatDate: _formatDate,
+                                  onStatusChanged: _changeTaskStatus,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 );
@@ -221,8 +296,8 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
         ),
         child: ElevatedButton(
           onPressed: () async {
-            final bool? created = await Navigator.of(context).push<bool>(
-              MaterialPageRoute<bool>(
+            final bool? created = await Navigator.of(context).push(
+              MaterialPageRoute(
                 builder: (BuildContext context) => CreateTaskScreen(
                   organizacionId: widget.organization.id,
                   usuarios: widget.organization.usuarios,
@@ -255,6 +330,187 @@ class _OrganizationDetailScreenState extends State<OrganizationDetailScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _KanbanColumn extends StatelessWidget {
+  final String title;
+  final Color color;
+  final List<Task> tasks;
+  final bool isUpdatingStatus;
+  final String Function(DateTime) formatDate;
+  final Future<void> Function(Task, String?) onStatusChanged;
+
+  const _KanbanColumn({
+    required this.title,
+    required this.color,
+    required this.tasks,
+    required this.isUpdatingStatus,
+    required this.formatDate,
+    required this.onStatusChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F3F5),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 8,
+                backgroundColor: color.withOpacity(0.15),
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${tasks.length}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Expanded(
+            child: tasks.isEmpty
+                ? Center(
+                    child: Text(
+                      'Sin tareas',
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: tasks.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (BuildContext context, int index) {
+                      final Task task = tasks[index];
+
+                      return Card(
+                        elevation: 1.5,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    TaskDetailScreen(task: task),
+                              ),
+                            );
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  task.titulo,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Inicio: ${formatDate(task.fechaInicio)}',
+                                  style: TextStyle(color: Colors.grey[700]),
+                                ),
+                                Text(
+                                  'Fin: ${formatDate(task.fechaFin)}',
+                                  style: TextStyle(color: Colors.grey[700]),
+                                ),
+                                const SizedBox(height: 12),
+                                DropdownButtonFormField<String>(
+                                  value: task.estado,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Estado',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: 'todo',
+                                      child: Text('To do'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'in_progress',
+                                      child: Text('In progress'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'completed',
+                                      child: Text('Done'),
+                                    ),
+                                  ],
+                                  onChanged: isUpdatingStatus
+                                      ? null
+                                      : (String? value) =>
+                                            onStatusChanged(task, value),
+                                ),
+                                if (task.usuarios.isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: task.usuarios
+                                        .map(
+                                          (user) => Chip(
+                                            label: Text(user.name),
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }

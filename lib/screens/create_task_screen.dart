@@ -150,6 +150,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         fechaInicio: _normalizeStartDate(_startDate!),
         fechaFin: _normalizeEndDate(_endDate!),
         usuarios: _selectedUsuarioIds.toList(),
+        estado: 'todo', // Default status for new tasks
       );
 
       print('Formulario válido. Datos listos para la Fase 4');
